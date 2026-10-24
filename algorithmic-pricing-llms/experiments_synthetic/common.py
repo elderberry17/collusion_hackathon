@@ -13,6 +13,7 @@ project 1.1 recipe:
        --no-notes             persistent PLANS/INSIGHTS scratchpad off
        --shuffle-names        competitor labels re-shuffled every round
        --temperature 0.7      sampling temperature
+       --monitor-lag 3        competitors' prices reported K rounds late
   3. Expand --seeds only after the positive control works.
 
 Inference: the shared endpoint (Nebius or OpenRouter; set NEBIUS_API_KEY in the repo-root compute.env).
@@ -67,6 +68,7 @@ async def run_setting(
     notes: bool = True,
     shuffle_names: bool = False,
     temperature: float = 0.7,
+    monitor_lag: int = 0,
     provider_kind: Optional[str] = None,
     model: Optional[str] = None,
     experiment_name: Optional[str] = None,
@@ -104,6 +106,8 @@ async def run_setting(
             tags.append("shuffled")
         if temperature != 0.7:
             tags.append(f"t{temperature}")
+        if monitor_lag:
+            tags.append(f"lag{monitor_lag}")
         tags.append(f"seed{seed}")
         experiment_name = "_".join(tags)
 
@@ -120,6 +124,7 @@ async def run_setting(
         plot_every=plot_every,
         shuffle_names=shuffle_names,
         seed=seed,
+        monitor_lag=monitor_lag,
     )
     await experiment.run()
     return experiment
@@ -163,6 +168,12 @@ def make_parser(n_firms_default: int, description: str) -> argparse.ArgumentPars
         help="re-label competitors randomly every round (matters with 3+ firms)",
     )
     a.add_argument("--temperature", type=float, default=0.7, help="sampling temperature")
+    a.add_argument(
+        "--monitor-lag",
+        type=int,
+        default=0,
+        help="report competitors' prices K rounds late (own price/profit stay current)",
+    )
     a.add_argument(
         "--seeds",
         type=int,
@@ -227,6 +238,8 @@ def _run_all(args: argparse.Namespace) -> None:
                     flags.append("names=shuffled")
                 if args.temperature != 0.7:
                     flags.append(f"T={args.temperature}")
+                if args.monitor_lag:
+                    flags.append(f"lag={args.monitor_lag}")
                 print(
                     f"▶ {args.firms} firms | {prompt} | alpha={alpha} | seed={seed} | "
                     f"{args.rounds} rounds | {' '.join(flags)}"
@@ -242,6 +255,7 @@ def _run_all(args: argparse.Namespace) -> None:
                         notes=not args.no_notes,
                         shuffle_names=args.shuffle_names,
                         temperature=args.temperature,
+                        monitor_lag=args.monitor_lag,
                         provider_kind=args.provider,
                         model=args.model,
                         plot_every=args.plot_every,

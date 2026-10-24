@@ -174,6 +174,7 @@ class Experiment:
         shuffle_names: bool = False,  # ablation: re-label competitors randomly each round
         seed: int = None,  # experiment seed (name shuffling + recorded in metadata)
         summary_window: int = 50,  # rounds used for the end-of-run price summary
+        monitor_lag: int = 0,  # ablation: competitors' prices reported K rounds late
     ):
         self.name = name
         self.agents = agents
@@ -189,6 +190,8 @@ class Experiment:
         self.shuffle_names = shuffle_names
         self.seed = seed
         self.summary_window = summary_window
+        self.monitor_lag = monitor_lag
+        self._price_log = {}  # round -> {agent: price}, source of lagged competitor prices
         self._rng = random.Random(seed)
         self.summary = None
 
@@ -292,6 +295,7 @@ class Experiment:
             "num_rounds": self.num_rounds,
             "seed": self.seed,
             "shuffle_names": self.shuffle_names,
+            "monitor_lag": self.monitor_lag,
             "agents_temperature": {
                 agent.name: getattr(agent, "temperature", None) for agent in self.agents
             },
@@ -390,11 +394,16 @@ class Experiment:
         return dict(zip(others, labels))
 
     def _store_environment_outputs(self, round_num, prices, quantities, profits):
+        self._price_log[round_num] = dict(prices)
+        reported_round = round_num - self.monitor_lag
+        reported_prices = self._price_log.get(reported_round)
         for idx, agent in enumerate(self.agents):
             name = agent.name
             labels = self._competitor_labels(name)
             competitors_prices = {
-                labels[a]: round(p, 2) for a, p in prices.items() if a != name
+                labels[a]: round(p, 2)
+                for a, p in (reported_prices or {}).items()
+                if a != name
             }
 
             market_data = ""
@@ -406,7 +415,15 @@ class Experiment:
                 )
 
             market_data += f"- My price: {round(prices[name], 2)}\n"
-            if competitors_prices:
+            if self.monitor_lag and len(self.agents) > 1:
+                if competitors_prices:
+                    market_data += (
+                        f"- Competitor's prices (as of round {reported_round}): "
+                        f"{competitors_prices}\n"
+                    )
+                else:
+                    market_data += "- Competitor's prices: not yet reported\n"
+            elif competitors_prices:
                 market_data += f"- Competitor's prices: {competitors_prices}\n"
             market_data += f"- My quantity sold: {round(quantities[name], 2)}\n"
             market_data += f"- My profit earned: {round(profits[name], 2)}\n"
