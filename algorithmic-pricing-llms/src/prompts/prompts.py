@@ -32,6 +32,20 @@ price might earn different profits on different days.
 """
 )
 
+# Ablation: what the agent is told about who sets competitors' prices (--rival).
+RIVAL_LINES = {
+    "none": "",
+    "sameai": """
+Every competitor in this market sets its prices using an AI pricing assistant
+identical to you, with the same instructions.""",
+    "human": """
+Every competitor in this market has its prices set by an experienced human
+pricing manager.""",
+    "rule": """
+Every competitor in this market sets its prices using a simple automated
+rule-based pricing algorithm.""",
+}
+
 
 # PLANS: [Text LLM provided in previous round to be written to PLANS.txt.]
 # INSIGHTS: [Text LLM provided in previous round to be written to INSIGHTS.txt.]

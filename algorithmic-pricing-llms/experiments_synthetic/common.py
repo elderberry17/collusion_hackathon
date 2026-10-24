@@ -13,6 +13,7 @@ project 1.1 recipe:
        --no-notes             persistent PLANS/INSIGHTS scratchpad off
        --shuffle-names        competitor labels re-shuffled every round
        --temperature 0.7      sampling temperature
+       --rival sameai|human|rule  who agents are told sets competitors' prices
   3. Expand --seeds only after the positive control works.
 
 Inference: the shared endpoint (Nebius or OpenRouter; set NEBIUS_API_KEY in the repo-root compute.env).
@@ -47,7 +48,13 @@ from src.agents.llm_providers import (  # noqa: E402
 )
 from src.environment.calvano import CalvanoDemandEnvironment  # noqa: E402
 from src.experiment.experiment import Experiment  # noqa: E402
-from src.prompts.prompts import GENERAL_PROMPT, GENERAL_PROMPT_NO_NOTES, P1, P2  # noqa: E402
+from src.prompts.prompts import (  # noqa: E402
+    GENERAL_PROMPT,
+    GENERAL_PROMPT_NO_NOTES,
+    P1,
+    P2,
+    RIVAL_LINES,
+)
 from src.prompts.prompts_models import create_pricing_response_model  # noqa: E402
 
 
@@ -67,6 +74,7 @@ async def run_setting(
     notes: bool = True,
     shuffle_names: bool = False,
     temperature: float = 0.7,
+    rival: str = "none",
     provider_kind: Optional[str] = None,
     model: Optional[str] = None,
     experiment_name: Optional[str] = None,
@@ -83,7 +91,7 @@ async def run_setting(
     agents = [
         LLMAgent(
             name,
-            prefix=PROMPTS[prompt],
+            prefix=PROMPTS[prompt] + RIVAL_LINES[rival],
             provider=provider,
             response_model=response_model,
             memory_length=memory_length,
@@ -104,6 +112,8 @@ async def run_setting(
             tags.append("shuffled")
         if temperature != 0.7:
             tags.append(f"t{temperature}")
+        if rival != "none":
+            tags.append(f"rival-{rival}")
         tags.append(f"seed{seed}")
         experiment_name = "_".join(tags)
 
@@ -163,6 +173,12 @@ def make_parser(n_firms_default: int, description: str) -> argparse.ArgumentPars
         help="re-label competitors randomly every round (matters with 3+ firms)",
     )
     a.add_argument("--temperature", type=float, default=0.7, help="sampling temperature")
+    a.add_argument(
+        "--rival",
+        default="none",
+        choices=sorted(RIVAL_LINES),
+        help="what agents are told about who sets competitors' prices",
+    )
     a.add_argument(
         "--seeds",
         type=int,
@@ -227,6 +243,8 @@ def _run_all(args: argparse.Namespace) -> None:
                     flags.append("names=shuffled")
                 if args.temperature != 0.7:
                     flags.append(f"T={args.temperature}")
+                if args.rival != "none":
+                    flags.append(f"rival={args.rival}")
                 print(
                     f"▶ {args.firms} firms | {prompt} | alpha={alpha} | seed={seed} | "
                     f"{args.rounds} rounds | {' '.join(flags)}"
@@ -242,6 +260,7 @@ def _run_all(args: argparse.Namespace) -> None:
                         notes=not args.no_notes,
                         shuffle_names=args.shuffle_names,
                         temperature=args.temperature,
+                        rival=args.rival,
                         provider_kind=args.provider,
                         model=args.model,
                         plot_every=args.plot_every,
