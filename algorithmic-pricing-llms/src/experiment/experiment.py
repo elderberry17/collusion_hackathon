@@ -174,6 +174,7 @@ class Experiment:
         shuffle_names: bool = False,  # ablation: re-label competitors randomly each round
         seed: int = None,  # experiment seed (name shuffling + recorded in metadata)
         summary_window: int = 50,  # rounds used for the end-of-run price summary
+        horizon: str = "none",  # ablation: reveal game length ("none" | "total" | "countdown")
     ):
         self.name = name
         self.agents = agents
@@ -189,6 +190,7 @@ class Experiment:
         self.shuffle_names = shuffle_names
         self.seed = seed
         self.summary_window = summary_window
+        self.horizon = horizon
         self._rng = random.Random(seed)
         self.summary = None
 
@@ -292,6 +294,7 @@ class Experiment:
             "num_rounds": self.num_rounds,
             "seed": self.seed,
             "shuffle_names": self.shuffle_names,
+            "horizon": self.horizon,
             "agents_temperature": {
                 agent.name: getattr(agent, "temperature", None) for agent in self.agents
             },
@@ -322,6 +325,9 @@ class Experiment:
             )
             for agent in self.agents
         }
+        horizon_line = self._horizon_line(round_num)
+        if horizon_line:
+            prompts = {n: p + horizon_line if p else p for n, p in prompts.items()}
 
         # Use rate-limited execution
         self.logger.info(
@@ -370,6 +376,18 @@ class Experiment:
                 metadata=metadata,
                 save_path=svg_path,
             )
+
+    def _horizon_line(self, round_num: int) -> str:
+        """Game-length disclosure appended to every prompt (finite-horizon ablation)."""
+        if self.horizon == "total":
+            return f"\nThe market will run for exactly {self.num_rounds} rounds in total.\n"
+        if self.horizon == "countdown":
+            remaining = self.num_rounds - round_num
+            return (
+                f"\nThis is round {round_num} of {self.num_rounds}. "
+                f"There are {remaining} rounds remaining after this one.\n"
+            )
+        return ""
 
     def _store_agent_outputs(self, results, round_num) -> dict:
         prices = {}
