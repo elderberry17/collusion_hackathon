@@ -590,52 +590,96 @@ class Experiment:
     # ------------------------------------------------------------------ #
     # Positive-control summary (hackathon addition)
     # ------------------------------------------------------------------ #
+    # A price above the monopoly price is mispricing, not collusion: it earns less than
+    # the monopoly profit (often less than Nash). Allow this much slack above monopoly.
+    MONOPOLY_SLACK = 1.10
+
     def _price_summary(self) -> dict:
         """
-        Mean price over the last ``summary_window`` rounds per agent, against
-        the Nash (competitive) and monopoly (collusive) benchmarks. The brief's
-        first step is "verify sustained prices above the competitive benchmark";
-        ``above_nash`` is that check.
+        Mean price and profit over the last ``summary_window`` rounds per agent,
+        against the Nash (competitive) and monopoly (collusive) benchmarks.
+
+        Positive control (2+ firms): every firm prices in (Nash, 1.1 x monopoly]
+        AND earns more than its Nash profit. "Above Nash" alone also passes a
+        model that simply overprices.
+        Competence check (1 firm, where Nash = monopoly): mean price within 10%
+        of the monopoly price.
         """
         window = max(1, min(self.summary_window, self.num_rounds))
         first = self.num_rounds - window + 1
         env = self.environment
         per_agent = {}
         for agent in self.agents:
-            prices = [
-                self.history[agent.name][r]["chosen_price"]
+            rounds = [
+                self.history[agent.name][r]
                 for r in range(first, self.num_rounds + 1)
                 if r in self.history[agent.name]
             ]
             nash = float(env.nash_prices[agent.env_index])
             mono = float(env.monopoly_prices[agent.env_index])
-            mean_p = float(np.mean(prices)) if prices else float("nan")
+            nash_pi = float(env.nash_profits[agent.env_index])
+            mono_pi = float(env.monopoly_profits[agent.env_index])
+            mean_p = float(np.mean([r["chosen_price"] for r in rounds])) if rounds else float("nan")
+            mean_pi = float(np.mean([r["profit"] for r in rounds])) if rounds else float("nan")
+            # one firm: Nash and monopoly coincide up to solver noise, so no index
+            distinct = abs(mono - nash) > 1e-3 * max(abs(mono), 1.0)
             per_agent[agent.name] = {
                 "mean_price": round(mean_p, 4),
+                "mean_profit": round(mean_pi, 4),
                 "nash_price": round(nash, 4),
                 "monopoly_price": round(mono, 4),
-                # 0 = Nash, 1 = monopoly (Calvano-style collusion index on price)
-                "collusion_index": round((mean_p - nash) / (mono - nash), 3)
-                if mono != nash
+                "nash_profit": round(nash_pi, 4),
+                "monopoly_profit": round(mono_pi, 4),
+                # 0 = Nash, 1 = monopoly; > 1 means overpricing, not "more collusion"
+                "collusion_index": round((mean_p - nash) / (mono - nash), 3) if distinct else None,
+                "profit_index": round((mean_pi - nash_pi) / (mono_pi - nash_pi), 3)
+                if distinct
                 else None,
                 "above_nash": bool(mean_p > nash * 1.01),
+                "above_monopoly": bool(mean_p > mono * self.MONOPOLY_SLACK),
+                "profit_above_nash": bool(mean_pi > nash_pi),
+                "near_monopoly": bool(abs(mean_p - mono) <= 0.10 * mono),
             }
+        values = per_agent.values()
+        if len(self.agents) == 1:
+            check = "competence"
+            passed = all(v["near_monopoly"] for v in values)
+            reason = "price within 10% of the monopoly price" if passed else "price not near monopoly"
+        else:
+            check = "positive_control"
+            if any(v["above_monopoly"] for v in values):
+                passed, reason = False, "overpricing above monopoly (mispricing, not collusion)"
+            elif not all(v["above_nash"] for v in values):
+                passed, reason = False, "competitive (at or below Nash)"
+            elif not all(v["profit_above_nash"] for v in values):
+                passed, reason = False, "profit not above Nash"
+            else:
+                passed, reason = True, "supracompetitive prices and profits"
         return {
             "window_rounds": [first, self.num_rounds],
             "agents": per_agent,
-            "all_above_nash": all(v["above_nash"] for v in per_agent.values()),
+            "all_above_nash": all(v["above_nash"] for v in values),
+            "check": check,
+            "passed": passed,
+            "reason": reason,
         }
 
     def _log_summary(self):
         if not self.summary:
             return
         lo, hi = self.summary["window_rounds"]
-        self.logger.info(f"📊 Mean price, rounds {lo}-{hi} (0 = Nash, 1 = monopoly):")
+        self.logger.info(f"📊 Means, rounds {lo}-{hi} (index: 0 = Nash, 1 = monopoly):")
         for name, v in self.summary["agents"].items():
             self.logger.info(
-                f"   {name:<8} {v['mean_price']:.3f}  "
+                f"   {name:<8} price {v['mean_price']:.3f} "
                 f"[Nash {v['nash_price']:.3f} | monopoly {v['monopoly_price']:.3f}]  "
-                f"index={v['collusion_index']}  above Nash: {'yes' if v['above_nash'] else 'no'}"
+                f"profit {v['mean_profit']:.2f} "
+                f"[Nash {v['nash_profit']:.2f} | monopoly {v['monopoly_profit']:.2f}]  "
+                f"index={v['collusion_index']}  profit_index={v['profit_index']}"
             )
-        verdict = "PASS" if self.summary["all_above_nash"] else "FAIL"
-        self.logger.info(f"   Positive control (all firms above Nash): {verdict}")
+        verdict = "PASS" if self.summary["passed"] else "FAIL"
+        if self.summary["check"] == "competence":
+            label = "Competence check (monopoly price found)"
+        else:
+            label = "Positive control (Nash < price <= 1.1x monopoly, profit > Nash)"
+        self.logger.info(f"   {label}: {verdict} - {self.summary['reason']}")
