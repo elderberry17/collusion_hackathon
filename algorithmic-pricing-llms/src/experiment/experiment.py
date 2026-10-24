@@ -174,6 +174,8 @@ class Experiment:
         shuffle_names: bool = False,  # ablation: re-label competitors randomly each round
         seed: int = None,  # experiment seed (name shuffling + recorded in metadata)
         summary_window: int = 50,  # rounds used for the end-of-run price summary
+        demand_noise: float = 0.0,  # ablation: sigma of the mean-one lognormal demand shock
+        noise_type: str = "idio",  # "idio" = per firm and round, "common" = one per round
     ):
         self.name = name
         self.agents = agents
@@ -189,7 +191,11 @@ class Experiment:
         self.shuffle_names = shuffle_names
         self.seed = seed
         self.summary_window = summary_window
+        self.demand_noise = demand_noise
+        self.noise_type = noise_type
         self._rng = random.Random(seed)
+        # separate stream so the shock sequence depends only on the seed, not on name shuffling
+        self._noise_rng = np.random.default_rng(seed)
         self.summary = None
 
         # Hosted APIs need spacing between calls; a local server does not.
@@ -292,6 +298,8 @@ class Experiment:
             "num_rounds": self.num_rounds,
             "seed": self.seed,
             "shuffle_names": self.shuffle_names,
+            "demand_noise": self.demand_noise,
+            "noise_type": self.noise_type,
             "agents_temperature": {
                 agent.name: getattr(agent, "temperature", None) for agent in self.agents
             },
@@ -345,7 +353,13 @@ class Experiment:
         quantities, profits = self.environment.compute_quantities_and_profits(
             agent_order, prices
         )
+        shocks = self._demand_shocks()
+        # profit is linear in quantity, so scaling both keeps profit = (p/alpha - c) * q
+        quantities = {n: q * shocks[n] for n, q in quantities.items()}
+        profits = {n: pi * shocks[n] for n, pi in profits.items()}
         self._store_environment_outputs(round_num, prices, quantities, profits)
+        for name, shock in shocks.items():
+            self.history[name][round_num]["demand_shock"] = round(float(shock), 4)
         df_history = self._create_environment_dataframe()
         self.storage.save_environment_parquet(df_history)
         self.storage.save_round_data(self.history)
@@ -370,6 +384,19 @@ class Experiment:
                 metadata=metadata,
                 save_path=svg_path,
             )
+
+    def _demand_shocks(self) -> dict:
+        """Multiplicative quantity shocks exp(e - s^2/2), e ~ N(0, s^2): positive, mean one,
+        so expected-profit Nash / monopoly benchmarks are unchanged (noisy-demand ablation)."""
+        names = [agent.name for agent in self.agents]
+        s = self.demand_noise
+        if s <= 0:
+            return {n: 1.0 for n in names}
+        if self.noise_type == "common":
+            draws = np.full(len(names), self._noise_rng.normal(0.0, s))
+        else:
+            draws = self._noise_rng.normal(0.0, s, size=len(names))
+        return dict(zip(names, np.exp(draws - s**2 / 2)))
 
     def _store_agent_outputs(self, results, round_num) -> dict:
         prices = {}
@@ -453,6 +480,7 @@ class Experiment:
                     "marginal_cost": marginal_cost,
                     "quantity": data.get("quantity"),
                     "profit": data.get("profit"),
+                    "demand_shock": data.get("demand_shock", 1.0),
                     "initial_history": data.get("is_initial_history", False),
                 }
                 records.append(record)

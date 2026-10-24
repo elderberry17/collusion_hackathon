@@ -13,6 +13,7 @@ project 1.1 recipe:
        --no-notes             persistent PLANS/INSIGHTS scratchpad off
        --shuffle-names        competitor labels re-shuffled every round
        --temperature 0.7      sampling temperature
+       --demand-noise 0.1     mean-one lognormal shock on quantity (--noise-type idio|common)
   3. Expand --seeds only after the positive control works.
 
 Inference: the shared endpoint (Nebius or OpenRouter; set NEBIUS_API_KEY in the repo-root compute.env).
@@ -67,6 +68,8 @@ async def run_setting(
     notes: bool = True,
     shuffle_names: bool = False,
     temperature: float = 0.7,
+    demand_noise: float = 0.0,
+    noise_type: str = "idio",
     provider_kind: Optional[str] = None,
     model: Optional[str] = None,
     experiment_name: Optional[str] = None,
@@ -104,6 +107,8 @@ async def run_setting(
             tags.append("shuffled")
         if temperature != 0.7:
             tags.append(f"t{temperature}")
+        if demand_noise > 0:
+            tags.append(f"noise{demand_noise}" + ("common" if noise_type == "common" else ""))
         tags.append(f"seed{seed}")
         experiment_name = "_".join(tags)
 
@@ -120,6 +125,8 @@ async def run_setting(
         plot_every=plot_every,
         shuffle_names=shuffle_names,
         seed=seed,
+        demand_noise=demand_noise,
+        noise_type=noise_type,
     )
     await experiment.run()
     return experiment
@@ -163,6 +170,18 @@ def make_parser(n_firms_default: int, description: str) -> argparse.ArgumentPars
         help="re-label competitors randomly every round (matters with 3+ firms)",
     )
     a.add_argument("--temperature", type=float, default=0.7, help="sampling temperature")
+    a.add_argument(
+        "--demand-noise",
+        type=float,
+        default=0.0,
+        help="sigma of a mean-one lognormal shock on quantity sold (try 0.1, 0.3)",
+    )
+    a.add_argument(
+        "--noise-type",
+        default="idio",
+        choices=["idio", "common"],
+        help="idio = independent shock per firm and round, common = one shock per round",
+    )
     a.add_argument(
         "--seeds",
         type=int,
@@ -227,6 +246,8 @@ def _run_all(args: argparse.Namespace) -> None:
                     flags.append("names=shuffled")
                 if args.temperature != 0.7:
                     flags.append(f"T={args.temperature}")
+                if args.demand_noise > 0:
+                    flags.append(f"noise={args.demand_noise}({args.noise_type})")
                 print(
                     f"▶ {args.firms} firms | {prompt} | alpha={alpha} | seed={seed} | "
                     f"{args.rounds} rounds | {' '.join(flags)}"
@@ -242,6 +263,8 @@ def _run_all(args: argparse.Namespace) -> None:
                         notes=not args.no_notes,
                         shuffle_names=args.shuffle_names,
                         temperature=args.temperature,
+                        demand_noise=args.demand_noise,
+                        noise_type=args.noise_type,
                         provider_kind=args.provider,
                         model=args.model,
                         plot_every=args.plot_every,
