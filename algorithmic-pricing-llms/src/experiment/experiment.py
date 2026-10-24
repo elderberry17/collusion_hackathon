@@ -594,7 +594,9 @@ class Experiment:
         Competence check (1 firm, where Nash = monopoly): mean price within 10%
         of the monopoly price.
         """
-        window = max(1, min(self.summary_window, self.num_rounds))
+        # last 50 rounds, but at most the last third, so short gate runs (e.g. 50 rounds)
+        # are not judged on their early exploration
+        window = max(1, min(self.summary_window, self.num_rounds // 3))
         first = self.num_rounds - window + 1
         env = self.environment
         per_agent = {}
