@@ -1,0 +1,13 @@
+[18:39:15] [INFO] ✅ Metadata saved
+[18:39:15] [INFO] --- Round 1 ---
+[18:39:15] [INFO] Executing 1 agents with 1.1s rate limit
+[18:39:15] [INFO] Starting rate-limited execution for 1 agents
+[18:39:15] [INFO] Created 1 tasks, collecting results...
+[18:39:15] [INFO] 🔄 Attempt 1 for agent Firm A
+[18:39:19] [INFO] Successfully collected 1 results
+[18:39:19] [INFO] Agent execution completed in 4.08 seconds
+[18:39:19] [INFO] --- Round 2 ---
+[18:39:19] [INFO] Executing 1 agents with 1.1s rate limit
+[18:39:19] [INFO] Starting rate-limited execution for 1 agents
+[18:39:19] [INFO] Created 1 tasks, collecting results...
+[18:39:19] [INFO] 🔄 Attempt 1 for agent Firm A
